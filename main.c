@@ -6,27 +6,14 @@
 #include <linux/uinput.h>
 #include <string.h>
 
-
+#define TERMINATE_KEYMAP 119    //if KEY_PAUSE is pressed
 
 void emit(int fd, int type, int code, int val)
 {
     struct input_event ie;
     ie.type = type;
     ie.code = code;
-    ie.value = val;
-
-    ie.time.tv_sec = 0;
-    ie.time.tv_usec = 0;
-
-    write(fd, &ie, sizeof(ie));
-}
-
-void emit_swap(int fd, int type, int code, int val)
-{   
-    struct input_event ie;
-    ie.type = type;
-    ie.code = code; //keycode e.g.  KEY_A
-    ie.value = val; //value can be: 0->key pressed, 1->key released, 2->key hold
+    ie.value = val; //can be 0, 1, 2
 
     ie.time.tv_sec = 0;
     ie.time.tv_usec = 0;
@@ -71,32 +58,49 @@ int main()
     struct input_event ie;
     memset(&ie, 0, sizeof(ie));
 
-    //write(fd_input, &ie, sizeof(ie));
+    read(fd_input, &ie, sizeof(ie));
+    if(ie.value == 0){
+        emit(fd_uinput, EV_KEY, ie.code, 0);
+        emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
+    }
     ioctl(fd_input, EVIOCGRAB, 1);
-    sleep(1);
 
     while(1){  
         read(fd_input, &ie, sizeof(ie));
 
-        if(ie.code == KEY_A && ie.value == 1){
+        //DELETE -> RIGHT_CTRL
+        if(ie.code == KEY_DELETE && ie.value == 1){
             
             /*  THIS LEADS TO WEIRD BEHAVIOUR; still unclear why
             ie.code = KEY_B;
             write(fd_uinput, &ie, sizeof(ie));
             */
-            emit(fd_uinput, EV_KEY, KEY_B, 1);
+           
+            emit(fd_uinput, EV_KEY, KEY_RIGHTCTRL, 1);
             emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
-            emit(fd_uinput, EV_KEY, KEY_B, 0);
+            emit(fd_uinput, EV_KEY, KEY_RIGHTCTRL, 0);
             emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
-        }   
-        else
+        }
+        else if(ie.code == TERMINATE_KEYMAP){
+            break;
+        }
+        else{
             write(fd_uinput, &ie, sizeof(ie));
-        //printf("code: %d\n", ie.code);
+            //printf("code: %d\n", ie.code);
+        }            
     }    
-    //TODO: find way to trigger this part
     ioctl(fd_input, EVIOCGRAB, 0);
     ioctl(fd_uinput, UI_DEV_DESTROY);
     close(fd_input);
     close(fd_uinput);
     return 0;
 }
+
+
+/*
+<  86
+leftalt 56
+rightalt 100
+end 107
+del 111
+*/
