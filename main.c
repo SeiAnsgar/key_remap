@@ -23,27 +23,7 @@ void emit(int fd, int type, int code, int val)
 }
 
 /*#####################TODO:##########################
-create method so look through keymap_list:
 
-if(ie.code == KEY_DELETE && ie.value == 1){
-            
-            // THIS LEADS TO WEIRD BEHAVIOUR; still unclear why
-            //ie.code = KEY_B;
-            //write(fd_uinput, &ie, sizeof(ie));
-            
-           
-            emit(fd_uinput, EV_KEY, KEY_RIGHTCTRL, 1);
-            emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
-            emit(fd_uinput, EV_KEY, KEY_RIGHTCTRL, 0);
-            emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
-        }
-        else if(ie.code == TERMINATE_KEYMAP){
-            break;
-        }
-        else{
-            write(fd_uinput, &ie, sizeof(ie));
-            //printf("code: %d\n", ie.code);
-        } 
 #####################################################*/
 
 typedef struct{
