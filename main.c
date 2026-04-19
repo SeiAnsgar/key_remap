@@ -9,21 +9,20 @@
 #define TERMINATE_KEYMAP 119    //if KEY_PAUSE is pressed
 #define KEYMAP_LENGTH 5
 
-void emit(int fd, int type, int code, int val)
-{
-    struct input_event ie;
-    ie.type = type;
-    ie.code = code;
-    ie.value = val; //can be 0, 1, 2
 
-    ie.time.tv_sec = 0;
-    ie.time.tv_usec = 0;
-
-    write(fd, &ie, sizeof(ie));
-}
+void emit(int fd, int type, int code, int val);
+int setup_keymap();
+void handle_keycheck(int fd_uinput, int *is_custom_key, struct input_event *ie);
 
 /*#####################TODO:##########################
+add key combo support
+    -> read keycombo
+    -> write keycombo   -ok
+    ->how is info stored?
 
+add macro support 
+    ->send n keypresses at once
+    ->how is macro saved?
 #####################################################*/
 
 typedef struct{
@@ -31,26 +30,6 @@ typedef struct{
     int custom;
 }Keymap;
 Keymap keymap_list[KEYMAP_LENGTH];
-
-int setup_km(){
-
-    memset(keymap_list, -1, sizeof(keymap_list));
-
-    Keymap k0 = {.original=KEY_A, .custom=KEY_B};
-    keymap_list[0] = k0;
-
-    Keymap k1 = {.original=KEY_Y, .custom=KEY_Z};
-    keymap_list[1] = k1;
-
-    Keymap k2 = {.original=KEY_1, .custom=KEY_3};
-    keymap_list[2] = k2;
-
-    for(int i=0; i<KEYMAP_LENGTH; i++)
-    {
-        printf("show keymap: %i\n",keymap_list[i].original);
-    }
-    return 1;
-}
 
 
 int main()
@@ -65,7 +44,6 @@ int main()
     int fd_uinput = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
     if(fd_uinput < 0){
         perror("Error opening /uinput");
-        printf("error error");
         return fd_uinput;
     }
 
@@ -95,36 +73,22 @@ int main()
     }
     ioctl(fd_input, EVIOCGRAB, 1);
 
-    printf("reached to here \n");
+    setup_keymap();
 
-    setup_km();
     int is_custom_key = 0;
     while(1){  
         read(fd_input, &ie, sizeof(ie));
-        is_custom_key = 0;
-        for(int i=0; i<KEYMAP_LENGTH; i++)
-        {   /*  THIS LEADS TO WEIRD BEHAVIOUR; still unclear why
-            ie.code = KEY_B;
-            write(fd_uinput, &ie, sizeof(ie));
-            */
-            //send keycode ie is in keymap AND is pressed
-            if(ie.code == keymap_list[i].original && ie.value == 1){
-                emit(fd_uinput, EV_KEY, keymap_list[i].custom, 1);
-                emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
-                emit(fd_uinput, EV_KEY, keymap_list[i].custom, 0);
-                emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
-                is_custom_key = 1;
-                break;
-            }
-        }
-        if(is_custom_key == 0){
-            write(fd_uinput, &ie, sizeof(ie));
-        }
-        if(ie.code == TERMINATE_KEYMAP){
-            break;
-        }
+        
+        //debug messages
+        printf("------------------------------------------\n");
+        printf("ie type: %i\n", ie.type);
+        printf("ie code: %i\n", ie.code);
+        printf("ie value: %i\n", ie.value);
+        printf("------------------------------------------\n");
+        
+        handle_keycheck(fd_uinput, &is_custom_key, &ie);
     }
-
+        
     ioctl(fd_input, EVIOCGRAB, 0);
     ioctl(fd_uinput, UI_DEV_DESTROY);
     close(fd_input);
@@ -133,13 +97,81 @@ int main()
 }
 
 
-/*
-<  86
-leftalt 56
-rightalt 100
-end 107
-del 111
+void emit(int fd, int type, int code, int val)
+{
+    struct input_event ie;
+    ie.type = type;
+    ie.code = code;
+    ie.value = val; //can be 0, 1, 2
+
+    ie.time.tv_sec = 0;
+    ie.time.tv_usec = 0;
+
+    write(fd, &ie, sizeof(ie));
+}
+
+
+int setup_keymap(){
+
+    memset(keymap_list, -1, sizeof(keymap_list));
+
+    //Keymap k0 = {.original=KEY_A, .custom=KEY_B};
+    //keymap_list[0] = k0;
+
+    //Keymap k1 = {.original=KEY_Y, .custom=KEY_Z};
+    //keymap_list[1] = k1;
+
+    Keymap k2 = {.original=KEY_1, .custom=KEY_3};
+    keymap_list[2] = k2;
+
+    for(int i=0; i<KEYMAP_LENGTH; i++)
+    {
+        printf("show keymap: %i\n",keymap_list[i].original);
+    }
+    return 1;
+}
+
+
+void handle_keycheck(int fd_uinput, int *is_custom_key, struct input_event *ie)
+{
+    *is_custom_key = 0;
+    for(int i=0; i<KEYMAP_LENGTH; i++)
+    {
+        //send keycode ie is in keymap AND is pressed
+        if(ie->code == keymap_list[i].original && ie->value == 1){
+            emit(fd_uinput, EV_KEY, keymap_list[i].custom, 1);
+            emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
+            emit(fd_uinput, EV_KEY, keymap_list[i].custom, 0);
+            emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
+            *is_custom_key = 1;
+            break;
+        }
+    }
+    if(*is_custom_key == 0){ 
+        write(fd_uinput, ie, sizeof(*ie));
+    }
+    //if(ie->code == TERMINATE_KEYMAP){
+    //    break;
+    //}
+}
+
+
+
+/*  
+SEND KEY COMBO
+
+    l -> ctrl + v
+
+    emit(fd_uinput, EV_KEY, KEY_RIGHTCTRL, 1);
+    emit(fd_uinput, EV_KEY, KEY_V, 1);
+
+    emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
+    emit(fd_uinput, EV_KEY, KEY_RIGHTCTRL, 0);
+    emit(fd_uinput, EV_KEY, KEY_V, 0);
+    emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
+
 */
+
 
 
 /*
