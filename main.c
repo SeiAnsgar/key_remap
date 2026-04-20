@@ -8,28 +8,29 @@
 
 #define TERMINATE_KEYMAP 119    //if KEY_PAUSE is pressed
 #define KEYMAP_LENGTH 5
-
+#define CUSTOM_SIZE 2
 
 void emit(int fd, int type, int code, int val);
 int setup_keymap();
 void handle_keycheck(int fd_uinput, int *is_custom_key, struct input_event *ie);
+void buffer_handler(struct input_event new_ie);
 
 /*#####################TODO:##########################
-add key combo support
-    -> read keycombo
-    -> write keycombo   -ok
-    ->how is info stored?
+detect key-combo
+    -maybe buffer that holds all keys that are currently pressed.
+    ->add key to buff if: key is pressed, key ist not in buff
+    ->remove key from buff if key is released
 
-add macro support 
-    ->send n keypresses at once
-    ->how is macro saved?
 #####################################################*/
 
 typedef struct{
     int original;
-    int custom;
+    int custom[CUSTOM_SIZE];
+    int is_shortcut;
 }Keymap;
 Keymap keymap_list[KEYMAP_LENGTH];
+
+struct input_event input_buffer[2] = {0};
 
 
 int main()
@@ -85,7 +86,11 @@ int main()
         printf("ie code: %i\n", ie.code);
         printf("ie value: %i\n", ie.value);
         printf("------------------------------------------\n");
-        
+
+        buffer_handler(ie);
+        printf("buffer[0] code: %i\n",input_buffer[0].code);
+        printf("buffer[1] code: %i\n",input_buffer[1].code);
+
         handle_keycheck(fd_uinput, &is_custom_key, &ie);
     }
         
@@ -113,15 +118,18 @@ void emit(int fd, int type, int code, int val)
 
 int setup_keymap(){
 
-    memset(keymap_list, -1, sizeof(keymap_list));
+    //memset(keymap_list, -1, sizeof(keymap_list));   NO LONGER NEEDED
 
     //Keymap k0 = {.original=KEY_A, .custom=KEY_B};
     //keymap_list[0] = k0;
 
-    //Keymap k1 = {.original=KEY_Y, .custom=KEY_Z};
-    //keymap_list[1] = k1;
+    Keymap k1 = {.original=KEY_2, .custom={KEY_102ND, KEY_3}};
+    keymap_list[1] = k1;
 
-    Keymap k2 = {.original=KEY_1, .custom=KEY_3};
+    Keymap k2 = {.original=KEY_0, .custom={KEY_LEFTCTRL, KEY_V}, .is_shortcut=1};
+    keymap_list[2] = k2;
+
+    Keymap k2 = {.original=KEY_0, .custom={KEY_LEFTCTRL, KEY_V}, .is_shortcut=1};
     keymap_list[2] = k2;
 
     for(int i=0; i<KEYMAP_LENGTH; i++)
@@ -134,17 +142,73 @@ int setup_keymap(){
 
 void handle_keycheck(int fd_uinput, int *is_custom_key, struct input_event *ie)
 {
-    *is_custom_key = 0;
-    for(int i=0; i<KEYMAP_LENGTH; i++)
-    {
-        //send keycode ie is in keymap AND is pressed
-        if(ie->code == keymap_list[i].original && ie->value == 1){
-            emit(fd_uinput, EV_KEY, keymap_list[i].custom, 1);
-            emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
-            emit(fd_uinput, EV_KEY, keymap_list[i].custom, 0);
-            emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
-            *is_custom_key = 1;
-            break;
+    /*
+    input event ie:
+        type:
+        code: KEY_CODE
+        value:  1->pressed, 0->released
+    */
+    int buffer_flag = 0;
+    *is_custom_key = 0;      
+            
+    //input buffer filled
+    if (input_buffer[0].value == 1 && input_buffer[1].value == 1){
+        for(int i=0; i<KEYMAP_LENGTH; i++)
+        {
+            if(input_buffer[0].code == keymap_list[i].original){
+                buffer_flag++;
+            }
+            if(input_buffer[0].code == keymap_list[i].original){
+                buffer_flag++;
+            }
+            if(buffer_flag == 2)
+            {
+                emit(fd_uinput, EV_KEY, keymap_list[i].custom[0], 1);
+                emit(fd_uinput, EV_KEY, keymap_list[i].custom[1], 1);
+                emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
+                
+                emit(fd_uinput, EV_KEY, keymap_list[i].custom[0], 0);
+                emit(fd_uinput, EV_KEY, keymap_list[i].custom[1], 0);
+                emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
+                
+                *is_custom_key = 1;
+                buffer_flag = 0;
+                break;
+            }
+        
+        }
+    }
+    
+    
+    else if(ie->value == 1){     //key_down event
+        for(int i=0; i<KEYMAP_LENGTH; i++)
+        {
+            //keycode ie is in keymap
+            if(ie->code == keymap_list[i].original && keymap_list[i].is_shortcut == 0){
+                for(int k=0; k<CUSTOM_SIZE; k++) //send all keycoeds in custom if set
+                {   
+                    if(keymap_list[i].custom[k] != -1){
+                        emit(fd_uinput, EV_KEY, keymap_list[i].custom[k], 1);
+                        emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
+                        emit(fd_uinput, EV_KEY, keymap_list[i].custom[k], 0);
+                        emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
+                    }
+                }
+                *is_custom_key = 1;
+                break;
+            }
+            //for sending shortcuts e.g ctrl + v
+            else if(ie->code == keymap_list[i].original && keymap_list[i].is_shortcut){
+                emit(fd_uinput, EV_KEY, keymap_list[i].custom[0], 1);
+                emit(fd_uinput, EV_KEY, keymap_list[i].custom[1], 1);
+                emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
+                
+                emit(fd_uinput, EV_KEY, keymap_list[i].custom[0], 0);
+                emit(fd_uinput, EV_KEY, keymap_list[i].custom[1], 0);
+                emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
+                *is_custom_key = 1;
+                break;
+            }
         }
     }
     if(*is_custom_key == 0){ 
@@ -155,22 +219,27 @@ void handle_keycheck(int fd_uinput, int *is_custom_key, struct input_event *ie)
     //}
 }
 
+void buffer_handler(struct input_event new_ie)
+{
+    if(new_ie.value == 1 && input_buffer[0].code == 0){
+        //write to buff[0]
+        input_buffer[0] = new_ie;
+    }
+    //else if(new_ie.value == 1 && new_ie.code != input_buffer[1].code){
+    else if(new_ie.value == 1 && input_buffer[1].code == 0 ){
+        //write to buff[1]
+        input_buffer[1] = new_ie;
+    }
+    else if(new_ie.value == 0 && new_ie.code == input_buffer[0].code){
+        //remove from buff[0]
+        memset(&input_buffer[0],0,sizeof(struct input_event));
+    }
+    else if(new_ie.value == 0 && new_ie.code == input_buffer[1].code){
+        //remove from buff[1]
+        memset(&input_buffer[1],0,sizeof(struct input_event));
+    }    
+}
 
-
-/*  
-SEND KEY COMBO
-
-    l -> ctrl + v
-
-    emit(fd_uinput, EV_KEY, KEY_RIGHTCTRL, 1);
-    emit(fd_uinput, EV_KEY, KEY_V, 1);
-
-    emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
-    emit(fd_uinput, EV_KEY, KEY_RIGHTCTRL, 0);
-    emit(fd_uinput, EV_KEY, KEY_V, 0);
-    emit(fd_uinput, EV_SYN, SYN_REPORT, 0);
-
-*/
 
 
 
